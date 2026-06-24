@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reserva da Sala de Reunião</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      margin: 0;
+      padding: 30px;
+      color: #222;
+    }
+
+    .container {
+      max-width: 850px;
+      margin: auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 16px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 25px;
+    }
+
+    label {
+      font-weight: bold;
+    }
+
+    input, button {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+    }
+
+    button {
+      background: #222;
+      color: white;
+      cursor: pointer;
+      border: none;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #444;
+    }
+
+    .message {
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      display: none;
+    }
+
+    .error {
+      background: #ffe1e1;
+      color: #8a0000;
+      border: 1px solid #ffaaaa;
+    }
+
+    .success {
+      background: #e3ffe3;
+      color: #075f07;
+      border: 1px solid #a6dfa6;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+
+    th {
+      background: #f0f0f0;
+    }
+
+    .delete-btn {
+      background: #b00020;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+
+    .delete-btn:hover {
+      background: #d0002a;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 15px;
+      }
+
+      table {
+        font-size: 13px;
+      }
+
+      th, td {
+        padding: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Reserva da Sala de Reunião</h1>
+
+    <div id="message" class="message"></div>
+
+    <form id="reservationForm">
+      <label for="name">Nome de quem irá usar:</label>
+      <input type="text" id="name" required placeholder="Ex: Heloísa" />
+
+      <label for="date">Data:</label>
+      <input type="date" id="date" required />
+
+      <label for="start">Horário de início:</label>
+      <input type="time" id="start" required />
+
+      <label for="end">Horário de fim:</label>
+      <input type="time" id="end" required />
+
+      <button type="submit">Reservar sala</button>
+    </form>
+
+    <h2>Reservas cadastradas</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Data</th>
+          <th>Início</th>
+          <th>Fim</th>
+          <th>Ação</th>
+        </tr>
+      </thead>
+      <tbody id="reservationList"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const form = document.getElementById("reservationForm");
+    const list = document.getElementById("reservationList");
+    const messageBox = document.getElementById("message");
+
+    let reservations = JSON.parse(localStorage.getItem("reservations")) || [];
+
+    function showMessage(text, type) {
+      messageBox.textContent = text;
+      messageBox.className = "message " + type;
+      messageBox.style.display = "block";
+
+      setTimeout(() => {
+        messageBox.style.display = "none";
+      }, 3500);
+    }
+
+    function saveReservations() {
+      localStorage.setItem("reservations", JSON.stringify(reservations));
+    }
+
+    function hasConflict(newReservation) {
+      return reservations.some(existing => {
+        if (existing.date !== newReservation.date) return false;
+
+        const newStart = newReservation.start;
+        const newEnd = newReservation.end;
+        const existingStart = existing.start;
+        const existingEnd = existing.end;
+
+        // Existe conflito quando um horário começa antes do outro terminar
+        // e termina depois do outro começar.
+        return newStart < existingEnd && newEnd > existingStart;
+      });
+    }
+
+    function formatDate(dateString) {
+      const [year, month, day] = dateString.split("-");
+      return `${day}/${month}/${year}`;
+    }
+
+    function renderReservations() {
+      list.innerHTML = "";
+
+      reservations.sort((a, b) => {
+        if (a.date === b.date) return a.start.localeCompare(b.start);
+        return a.date.localeCompare(b.date);
+      });
+
+      reservations.forEach((reservation, index) => {
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+          <td>${reservation.name}</td>
+          <td>${formatDate(reservation.date)}</td>
+          <td>${reservation.start}</td>
+          <td>${reservation.end}</td>
+          <td><button class="delete-btn" onclick="deleteReservation(${index})">Excluir</button></td>
+        `;
+
+        list.appendChild(row);
+      });
+    }
+
+    function deleteReservation(index) {
+      reservations.splice(index, 1);
+      saveReservations();
+      renderReservations();
+      showMessage("Reserva excluída com sucesso.", "success");
+    }
+
+    form.addEventListener("submit", function(event) {
+      event.preventDefault();
+
+      const name = document.getElementById("name").value.trim();
+      const date = document.getElementById("date").value;
+      const start = document.getElementById("start").value;
+      const end = document.getElementById("end").value;
+
+      if (end <= start) {
+        showMessage("O horário de fim precisa ser depois do horário de início.", "error");
+        return;
+      }
+
+      const newReservation = { name, date, start, end };
+
+      if (hasConflict(newReservation)) {
+        showMessage("Conflito de horário! A sala já está reservada nesse período.", "error");
+        return;
+      }
+
+      reservations.push(newReservation);
+      saveReservations();
+      renderReservations();
+
+      form.reset();
+      showMessage("Reserva cadastrada com sucesso!", "success");
+    });
+
+    renderReservations();
+  </script>
+</body>
+</html>
