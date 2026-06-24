@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Reserva da Sala de Reunião</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -14,7 +15,7 @@
     }
 
     .container {
-      max-width: 850px;
+      max-width: 900px;
       margin: auto;
       background: #fff;
       padding: 25px;
@@ -101,7 +102,15 @@
       background: #d0002a;
     }
 
-    @media (max-width: 600px) {
+    .small {
+      color: #666;
+      font-size: 14px;
+      margin-top: -10px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    @media (max-width: 650px) {
       body {
         padding: 15px;
       }
@@ -113,12 +122,17 @@
       th, td {
         padding: 8px;
       }
+
+      .container {
+        padding: 18px;
+      }
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Reserva da Sala de Reunião</h1>
+    <p class="small">Clínica Inspirare</p>
 
     <div id="message" class="message"></div>
 
@@ -155,11 +169,15 @@
   </div>
 
   <script>
+    // COLE AQUI AS INFORMAÇÕES DO SEU SUPABASE
+    const SUPABASE_URL = "COLE_AQUI_A_PROJECT_URL";
+    const SUPABASE_ANON_KEY = "COLE_AQUI_A_ANON_KEY";
+
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     const form = document.getElementById("reservationForm");
     const list = document.getElementById("reservationList");
     const messageBox = document.getElementById("message");
-
-    let reservations = JSON.parse(localStorage.getItem("reservations")) || [];
 
     function showMessage(text, type) {
       messageBox.textContent = text;
@@ -168,26 +186,7 @@
 
       setTimeout(() => {
         messageBox.style.display = "none";
-      }, 3500);
-    }
-
-    function saveReservations() {
-      localStorage.setItem("reservations", JSON.stringify(reservations));
-    }
-
-    function hasConflict(newReservation) {
-      return reservations.some(existing => {
-        if (existing.date !== newReservation.date) return false;
-
-        const newStart = newReservation.start;
-        const newEnd = newReservation.end;
-        const existingStart = existing.start;
-        const existingEnd = existing.end;
-
-        // Existe conflito quando um horário começa antes do outro terminar
-        // e termina depois do outro começar.
-        return newStart < existingEnd && newEnd > existingStart;
-      });
+      }, 4000);
     }
 
     function formatDate(dateString) {
@@ -195,37 +194,84 @@
       return `${day}/${month}/${year}`;
     }
 
-    function renderReservations() {
+    async function loadReservations() {
+      const { data, error } = await db
+        .from("reservas")
+        .select("*")
+        .order("date", { ascending: true })
+        .order("start_time", { ascending: true });
+
+      if (error) {
+        showMessage("Erro ao carregar reservas. Verifique a conexão com o Supabase.", "error");
+        console.error(error);
+        return;
+      }
+
+      renderReservations(data || []);
+    }
+
+    function renderReservations(reservations) {
       list.innerHTML = "";
 
-      reservations.sort((a, b) => {
-        if (a.date === b.date) return a.start.localeCompare(b.start);
-        return a.date.localeCompare(b.date);
-      });
+      if (reservations.length === 0) {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td colspan="5">Nenhuma reserva cadastrada.</td>`;
+        list.appendChild(row);
+        return;
+      }
 
-      reservations.forEach((reservation, index) => {
+      reservations.forEach((reservation) => {
         const row = document.createElement("tr");
 
         row.innerHTML = `
           <td>${reservation.name}</td>
           <td>${formatDate(reservation.date)}</td>
-          <td>${reservation.start}</td>
-          <td>${reservation.end}</td>
-          <td><button class="delete-btn" onclick="deleteReservation(${index})">Excluir</button></td>
+          <td>${reservation.start_time}</td>
+          <td>${reservation.end_time}</td>
+          <td><button class="delete-btn" onclick="deleteReservation('${reservation.id}')">Excluir</button></td>
         `;
 
         list.appendChild(row);
       });
     }
 
-    function deleteReservation(index) {
-      reservations.splice(index, 1);
-      saveReservations();
-      renderReservations();
-      showMessage("Reserva excluída com sucesso.", "success");
+    async function hasConflict(date, start, end) {
+      const { data, error } = await db
+        .from("reservas")
+        .select("*")
+        .eq("date", date);
+
+      if (error) {
+        console.error(error);
+        showMessage("Erro ao verificar conflito de horário.", "error");
+        return true;
+      }
+
+      return data.some(existing => {
+        return start < existing.end_time && end > existing.start_time;
+      });
     }
 
-    form.addEventListener("submit", function(event) {
+    async function deleteReservation(id) {
+      const confirmDelete = confirm("Tem certeza que deseja excluir esta reserva?");
+      if (!confirmDelete) return;
+
+      const { error } = await db
+        .from("reservas")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        showMessage("Erro ao excluir reserva.", "error");
+        console.error(error);
+        return;
+      }
+
+      showMessage("Reserva excluída com sucesso.", "success");
+      loadReservations();
+    }
+
+    form.addEventListener("submit", async function(event) {
       event.preventDefault();
 
       const name = document.getElementById("name").value.trim();
@@ -238,22 +284,47 @@
         return;
       }
 
-      const newReservation = { name, date, start, end };
+      const conflict = await hasConflict(date, start, end);
 
-      if (hasConflict(newReservation)) {
+      if (conflict) {
         showMessage("Conflito de horário! A sala já está reservada nesse período.", "error");
         return;
       }
 
-      reservations.push(newReservation);
-      saveReservations();
-      renderReservations();
+      const { error } = await db
+        .from("reservas")
+        .insert([
+          {
+            name: name,
+            date: date,
+            start_time: start,
+            end_time: end
+          }
+        ]);
+
+      if (error) {
+        showMessage("Erro ao cadastrar reserva.", "error");
+        console.error(error);
+        return;
+      }
 
       form.reset();
       showMessage("Reserva cadastrada com sucesso!", "success");
+      loadReservations();
     });
 
-    renderReservations();
+    loadReservations();
+
+    db
+      .channel("reservas-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reservas" },
+        () => {
+          loadReservations();
+        }
+      )
+      .subscribe();
   </script>
 </body>
 </html>
